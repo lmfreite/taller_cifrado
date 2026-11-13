@@ -1,0 +1,14 @@
+services:
+  securemsg:
+    build: .
+    container_name: taller-cifrado
+    ports:
+      - "8000"
+    environment:
+      SECUREMSG_DATA: /app/data
+    volumes:
+      - securemsg-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  securemsg-data:

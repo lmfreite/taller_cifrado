@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Taller de mensajería segura</title>
+  <style>
+    :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #19232d; background: #f3f6f8; font-synthesis: none; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    header { background: #102c3a; color: white; padding: 30px 24px; }
+    header > div, main { width: min(100% - 32px, 980px); margin: auto; }
+    h1 { margin: 0 0 7px; font-size: clamp(1.5rem, 4vw, 2rem); }
+    header p { margin: 0; color: #c3d6df; }
+    main { padding: 24px 0 48px; }
+    .status { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; color: #4a5964; font-size: .92rem; }
+    .badge { border-radius: 999px; background: #e4ebef; padding: 7px 12px; font-weight: 650; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    section { background: white; border: 1px solid #dfe6ea; border-radius: 14px; padding: 20px; box-shadow: 0 5px 20px #1837490a; }
+    h2 { margin: 0 0 8px; font-size: 1.1rem; }
+    .hint { margin: 0 0 16px; color: #687782; font-size: .9rem; line-height: 1.45; }
+    label { display: block; margin: 12px 0 6px; font-size: .88rem; font-weight: 650; }
+    input, select, textarea { width: 100%; border: 1px solid #cbd6dc; border-radius: 8px; padding: 10px 11px; color: inherit; font: inherit; background: white; }
+    textarea { min-height: 104px; resize: vertical; }
+    button { border: 0; border-radius: 8px; background: #087e8b; color: white; padding: 10px 14px; font: inherit; font-weight: 700; cursor: pointer; margin-top: 14px; }
+    button:hover { background: #066a75; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .secondary { background: #e8f0f2; color: #17424b; }
+    .secondary:hover { background: #dce9ec; }
+    .full { grid-column: 1 / -1; }
+    .message-list { display: grid; gap: 10px; margin-top: 14px; }
+    .message-card { border: 1px solid #e0e7ea; border-radius: 10px; padding: 12px; }
+    .message-card p { margin: 5px 0; }
+    .message-card small { color: #667780; }
+    .message-body { white-space: pre-wrap; overflow-wrap: anywhere; background: #f1f7f8; border-radius: 8px; padding: 12px; margin-top: 12px !important; }
+    pre { max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: #102c3a; color: #e5f4f7; padding: 13px; border-radius: 9px; font-size: .78rem; }
+    details { margin-top: 12px; }
+    summary { cursor: pointer; color: #17616b; font-weight: 700; }
+    .trace-steps { color: #43525c; padding-left: 22px; line-height: 1.55; }
+    .trace-steps code { font-size: .86em; }
+    .lab-output[hidden] { display: none; }
+    #notice { display: none; padding: 12px 14px; border-radius: 9px; margin-bottom: 16px; }
+    #notice.ok { display: block; color: #145b3b; background: #e3f4eb; }
+    #notice.error { display: block; color: #8c2828; background: #fdeaea; }
+    @media (max-width: 680px) { .grid { grid-template-columns: 1fr; } .full { grid-column: auto; } section { padding: 17px; } }
+  </style>
+</head>
+<body>
+  <header><div><h1>Mensajería segura</h1><p>Demo de cifrado híbrido, firmas digitales y certificados</p></div></header>
+  <main>
+    <div class="status"><span>Estado del sistema</span><span class="badge" id="state">Cargando…</span></div>
+    <div id="notice" role="status" aria-live="polite"></div>
+    <div class="grid">
+      <section>
+        <h2>1. Preparar la autoridad certificadora</h2>
+        <p class="hint">Crea la CA local una sola vez. Esta firma los certificados de los usuarios.</p>
+        <label for="ca-name">Nombre de la CA</label><input id="ca-name" value="Taller Criptografia CA" maxlength="100">
+        <button id="ca-button" onclick="createCa()">Crear CA</button>
+      </section>
+      <section>
+        <h2>2. Registrar usuario</h2>
+        <p class="hint">Cada usuario recibe un par RSA y un certificado firmado por la CA.</p>
+        <label for="identity">Identidad</label><input id="identity" placeholder="ej. ana" maxlength="64">
+        <button id="user-button" onclick="createUser()">Registrar usuario</button>
+        <label for="credential-user">Ver credenciales generadas</label><select id="credential-user"></select>
+        <button id="credentials-button" class="secondary" onclick="showCredentials()">Mostrar par RSA y certificado</button>
+        <p class="hint">La clave privada se mostrará en pantalla. Quien la obtenga puede suplantar al usuario; úsala solo para la demostración.</p>
+        <pre id="credentials-output" class="lab-output" hidden></pre>
+      </section>
+      <section>
+        <h2>3. Enviar mensaje</h2>
+        <p class="hint">El texto se firma y cifra para la clave pública certificada del destinatario.</p>
+        <label for="sender">Enviar como</label><select id="sender"></select>
+        <label for="recipient">Destinatario</label><select id="recipient"></select>
+        <label for="message">Mensaje</label><textarea id="message" maxlength="10000" placeholder="Escribe un mensaje…"></textarea>
+        <button id="send-button" onclick="sendMessage()">Firmar y cifrar</button>
+      </section>
+      <section>
+        <h2>4. Recibir y verificar</h2>
+        <p class="hint">La recepción valida el certificado, descifra el mensaje y comprueba hash y firma.</p>
+        <label for="inbox-user">Abrir bandeja de</label><select id="inbox-user"></select>
+        <button class="secondary" onclick="loadInbox()">Actualizar bandeja</button>
+        <div id="inbox" class="message-list"><p class="hint">Registra usuarios para empezar.</p></div>
+      </section>
+      <section class="full">
+        <h2>Laboratorio por módulos</h2>
+        <p class="hint">Ejecuta cada primitiva por separado para observar sus entradas y resultados. Las claves de estos ejercicios son temporales y distintas de las usadas por los usuarios.</p>
+      </section>
+      <section>
+        <h2>Módulo 1 · Hash e integridad</h2>
+        <p class="hint">Calcula SHA-256 y cambia un bit del primer byte para observar el efecto avalancha.</p>
+        <label for="hash-message">Texto</label><textarea id="hash-message" placeholder="Escribe un texto para calcular su huella"></textarea>
+        <button onclick="runLab('/api/labs/hash', 'hash-message', 'hash-output', this)">Calcular SHA-256</button>
+        <pre id="hash-output" class="lab-output" hidden></pre>
+      </section>
+      <section>
+        <h2>Módulo 2 · AES-256-GCM</h2>
+        <p class="hint">Genera clave, nonce/IV, ciphertext y etiqueta; luego descifra para comparar. No reutilices un nonce con la misma clave GCM: debilita confidencialidad y autenticación. La clave se muestra solo en este ejercicio.</p>
+        <label for="aes-message">Texto</label><textarea id="aes-message" placeholder="Texto para cifrar con AES"></textarea>
+        <button onclick="runLab('/api/labs/aes-gcm', 'aes-message', 'aes-output', this)">Cifrar y descifrar</button>
+        <pre id="aes-output" class="lab-output" hidden></pre>
+      </section>
+      <section>
+        <h2>Módulo 3 · Cifrado híbrido</h2>
+        <p class="hint">Cifra el texto con AES y protege la clave de sesión con una clave pública RSA temporal.</p>
+        <label for="hybrid-message">Texto</label><textarea id="hybrid-message" placeholder="Texto para el ejercicio híbrido"></textarea>
+        <button onclick="runLab('/api/labs/hybrid', 'hybrid-message', 'hybrid-output', this)">Ejecutar cifrado híbrido</button>
+        <pre id="hybrid-output" class="lab-output" hidden></pre>
+      </section>
+      <section>
+        <h2>Módulo 4 · Firma digital</h2>
+        <p class="hint">Firma el texto y prueba la verificación original y después de cambiar un bit.</p>
+        <label for="signature-message">Texto</label><textarea id="signature-message" placeholder="Texto que se va a firmar"></textarea>
+        <button onclick="runLab('/api/labs/signature', 'signature-message', 'signature-output', this)">Firmar y verificar</button>
+        <pre id="signature-output" class="lab-output" hidden></pre>
+      </section>
+      <section>
+        <h2>Módulo 5 · Certificados X.509</h2>
+        <p class="hint">Valida firma de la CA, vigencia e identidad del certificado seleccionado.</p>
+        <label for="cert-user">Usuario</label><select id="cert-user"></select>
+        <button id="cert-button" onclick="validateCertificate()">Validar certificado</button>
+        <button id="cert-untrusted-button" class="secondary" onclick="invalidCertificate('untrusted')">Probar certificado no firmado por la CA</button>
+        <button id="cert-expired-button" class="secondary" onclick="invalidCertificate('expired')">Probar certificado vencido</button>
+        <pre id="cert-output" class="lab-output" hidden></pre>
+      </section>
+      <section class="full">
+        <h2>Módulo 6 · Flujo integrado</h2>
+        <p class="hint">El envío y recepción de arriba combina los módulos: firma, cifrado AES-GCM, envoltura RSA-OAEP y certificados X.509. Al enviar se muestra también la traza del sobre resultante.</p>
+      </section>
+      <section class="full" id="trace-view" hidden></section>
+    </div>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let knownUsers = [];
+    function notice(text, kind = "ok") { const el = $("notice"); el.textContent = text; el.className = kind; }
+    async function api(path, options = {}) {
+      const response = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "No se pudo completar la operación.");
+      return data;
+    }
+    function fillSelect(id, users) {
+      const select = $(id), previous = select.value;
+      select.replaceChildren();
+      if (!users.length) { const option = new Option("Registra un usuario", ""); select.add(option); select.disabled = true; return; }
+      select.disabled = false;
+      users.forEach((user) => select.add(new Option(user, user)));
+      if (users.includes(previous)) select.value = previous;
+    }
+    async function refresh() {
+      const data = await api("/api/state");
+      knownUsers = data.users;
+      $("state").textContent = data.ca_initialized ? `${data.users.length} usuario(s) · CA activa` : "Falta crear la CA";
+      $("ca-button").disabled = data.ca_initialized;
+      $("user-button").disabled = !data.ca_initialized;
+      $("credentials-button").disabled = !data.users.length;
+      $("cert-button").disabled = !data.users.length;
+      $("cert-untrusted-button").disabled = !data.ca_initialized;
+      $("cert-expired-button").disabled = !data.ca_initialized;
+      ["sender", "recipient", "inbox-user", "cert-user", "credential-user"].forEach((id) => fillSelect(id, data.users));
+    }
+    async function createCa() {
+      try { const data = await api("/api/ca", { method: "POST", body: JSON.stringify({ name: $("ca-name").value }) }); notice(data.message); await refresh(); }
+      catch (error) { notice(error.message, "error"); }
+    }
+    async function createUser() {
+      try { const data = await api("/api/users", { method: "POST", body: JSON.stringify({ identity: $("identity").value }) }); notice(data.message); $("identity").value = ""; await refresh(); }
+      catch (error) { notice(error.message, "error"); }
+    }
+    async function sendMessage() {
+      const message = $("message").value;
+      try {
+        const data = await api("/api/messages", { method: "POST", body: JSON.stringify({ sender: $("sender").value, recipient: $("recipient").value, message }) });
+        notice(`Mensaje enviado. Código: ${data.id.slice(0, 8)}`); $("message").value = ""; $("inbox-user").value = $("recipient").value; renderTrace(data.trace); await loadInbox();
+      } catch (error) { notice(error.message, "error"); }
+    }
+    function renderTrace(trace) {
+      const section = $("trace-view"); section.hidden = false; section.replaceChildren();
+      const heading = document.createElement("h2"); heading.textContent = "Cómo se generó este mensaje";
+      const intro = document.createElement("p"); intro.className = "hint"; intro.textContent = "El sobre lleva valores públicos y ciphertext. La clave AES de sesión no se muestra: solo viaja envuelta para el destinatario.";
+      const steps = document.createElement("ol"); steps.className = "trace-steps";
+      [
+        `Se calcula SHA-256 del texto y ${trace.sender} firma el texto con RSA-PSS. La firma permite verificar quién controla la clave privada certificada.`,
+        "Se genera una clave AES-256 aleatoria y un nonce GCM nuevo. El texto, su hash y firma se cifran y autentican con AES-256-GCM.",
+        `La clave AES de sesión se cifra con la clave pública de ${trace.recipient} usando RSA-OAEP. Solo su clave privada puede desenvolverla.`,
+        "El sobre transmite el nonce, la clave envuelta, el ciphertext y el certificado de Ana. Remitente y destinatario quedan autenticados como AAD."
+      ].forEach((text) => { const li = document.createElement("li"); li.textContent = text; steps.append(li); });
+      const details = document.createElement("details");
+      const summary = document.createElement("summary"); summary.textContent = "Ver hash, firma y valores transmitidos";
+      const pre = document.createElement("pre");
+      pre.textContent = JSON.stringify({
+        "hash SHA-256 del texto (hex)": trace.plaintext_sha256,
+        "firma RSA-PSS (Base64)": trace.signature_b64,
+        "nonce AES-GCM (Base64, visible)": trace.nonce_b64,
+        "clave AES envuelta RSA-OAEP (Base64)": trace.wrapped_session_key_b64,
+        "ciphertext AES-GCM (Base64)": trace.ciphertext_b64,
+        "etiqueta de autenticación GCM (Base64)": trace.authentication_tag_b64,
+        "datos asociados autenticados (AAD)": trace.aad
+      }, null, 2);
+      details.append(summary, pre); section.append(heading, intro, steps, details); section.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+    async function loadInbox() {
+      const identity = $("inbox-user").value, container = $("inbox");
+      if (!identity) { container.innerHTML = '<p class="hint">Registra un usuario para ver mensajes.</p>'; return; }
+      try {
+        const messages = await api(`/api/inbox/${encodeURIComponent(identity)}`);
+        container.replaceChildren();
+        if (!messages.length) { const p = document.createElement("p"); p.className = "hint"; p.textContent = "No hay mensajes para este usuario."; container.append(p); return; }
+        messages.forEach((message) => {
+          const card = document.createElement("article"); card.className = "message-card";
+          const title = document.createElement("strong"); title.textContent = `De: ${message.sender}`;
+          const date = document.createElement("small"); date.textContent = message.sent_at_utc ? new Date(message.sent_at_utc).toLocaleString() : "Fecha no disponible";
+          const button = document.createElement("button"); button.className = "receive-button"; button.textContent = "Descifrar y verificar"; button.onclick = () => receiveMessage(message.id, card);
+          const envelopeDetails = document.createElement("details");
+          const envelopeSummary = document.createElement("summary"); envelopeSummary.textContent = "Ver sobre interceptable (datos cifrados)";
+          const envelopeButton = document.createElement("button"); envelopeButton.className = "secondary"; envelopeButton.textContent = "Cargar sobre JSON"; envelopeButton.onclick = () => showEnvelope(message.id, envelopePre);
+          const envelopePre = document.createElement("pre"); envelopeDetails.append(envelopeSummary, envelopeButton, envelopePre);
+          const interceptLabel = document.createElement("label"); interceptLabel.textContent = "Simular que otra identidad obtiene el archivo:";
+          const attacker = document.createElement("select");
+          const others = knownUsers.filter((user) => user !== identity);
+          if (!others.length) { attacker.add(new Option("Registra otro usuario (ej. eva)", "")); attacker.disabled = true; }
+          else others.forEach((user) => attacker.add(new Option(user, user)));
+          const attackButton = document.createElement("button"); attackButton.className = "secondary"; attackButton.textContent = "Intentar abrir la clave de sesión"; attackButton.disabled = !others.length;
+          const attackResult = document.createElement("p"); attackResult.className = "hint";
+          attackButton.onclick = () => tryIntercept(message.id, attacker.value, attackResult);
+          card.append(title, document.createElement("br"), date, document.createElement("br"), button, envelopeDetails, interceptLabel, attacker, attackButton, attackResult); container.append(card);
+        });
+      } catch (error) { notice(error.message, "error"); }
+    }
+    async function receiveMessage(id, card) {
+      const button = card.querySelector(".receive-button");
+      button.disabled = true; button.textContent = "Verificando…";
+      try {
+        const data = await api(`/api/messages/${id}/receive`, { method: "POST", body: JSON.stringify({ recipient: $("inbox-user").value }) });
+        const body = document.createElement("p"); body.className = "message-body"; body.textContent = data.message;
+        const verified = document.createElement("ul");
+        [
+          `Confidencialidad: ${data.confidentiality}`,
+          `Integridad: ${data.integrity}`,
+          `Autenticidad: ${data.authenticity}`,
+          `No repudio: ${data.non_repudiation}`
+        ].forEach((text) => { const item = document.createElement("li"); item.textContent = text; verified.append(item); });
+        let result = card.querySelector(".received-result");
+        if (!result) { result = document.createElement("div"); result.className = "received-result"; card.append(result); }
+        result.replaceChildren(body, verified);
+        button.textContent = "Mensaje verificado"; notice("Mensaje recibido y verificado.");
+      } catch (error) {
+        button.disabled = false; button.textContent = "Descifrar y verificar";
+        notice(`Mensaje rechazado: ${error.message}`, "error");
+      }
+    }
+    async function showEnvelope(id, output) {
+      try { const data = await api(`/api/messages/${id}/envelope`); output.textContent = JSON.stringify(data, null, 2); }
+      catch (error) { notice(error.message, "error"); }
+    }
+    async function tryIntercept(id, identity, output) {
+      try {
+        const result = await api(`/api/messages/${id}/intercept`, { method: "POST", body: JSON.stringify({ identity }) });
+        output.textContent = result.success ? `⚠ ${result.result}` : `✓ ${result.result}`;
+      } catch (error) { output.textContent = error.message; }
+    }
+    async function runLab(path, inputId, outputId, button) {
+      const output = $(outputId); button.disabled = true; button.textContent = "Procesando…";
+      try {
+        const result = await api(path, { method: "POST", body: JSON.stringify({ message: $(inputId).value }) });
+        output.textContent = JSON.stringify(result, null, 2); output.hidden = false;
+      } catch (error) { output.textContent = error.message; output.hidden = false; }
+      finally { button.disabled = false; button.textContent = "Ejecutar de nuevo"; }
+    }
+    async function validateCertificate() {
+      const output = $("cert-output"), button = $("cert-button"), identity = $("cert-user").value;
+      button.disabled = true; button.textContent = "Validando…";
+      try {
+        const result = await api(`/api/certificates/${encodeURIComponent(identity)}/validate`);
+        output.textContent = JSON.stringify(result, null, 2); output.hidden = false;
+      } catch (error) { output.textContent = error.message; output.hidden = false; }
+      finally { button.disabled = false; button.textContent = "Validar certificado"; }
+    }
+    async function showCredentials() {
+      const button = $("credentials-button"), output = $("credentials-output"), identity = $("credential-user").value;
+      button.disabled = true; button.textContent = "Cargando credenciales…";
+      try {
+        const result = await api(`/api/users/${encodeURIComponent(identity)}/credentials`);
+        output.textContent = JSON.stringify(result, null, 2); output.hidden = false;
+      } catch (error) { output.textContent = error.message; output.hidden = false; }
+      finally { button.disabled = !knownUsers.length; button.textContent = "Mostrar par RSA y certificado"; }
+    }
+    async function invalidCertificate(scenario) {
+      const output = $("cert-output");
+      try {
+        const result = await api("/api/labs/certificates/invalid", { method: "POST", body: JSON.stringify({ scenario }) });
+        output.textContent = JSON.stringify(result, null, 2); output.hidden = false;
+      } catch (error) { output.textContent = error.message; output.hidden = false; }
+    }
+    refresh().catch((error) => notice(error.message, "error"));
+  </script>
+</body>
+</html>
